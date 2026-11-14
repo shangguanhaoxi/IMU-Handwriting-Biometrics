@@ -1,5 +1,7 @@
 import unittest
-from omc.data import _identify_character
+import tempfile
+from pathlib import Path
+from omc.data import _identify_character, discover_records
 
 class DiscoveryTest(unittest.TestCase):
     def setUp(self): self.chars={'一','十','三','人'}
@@ -9,6 +11,26 @@ class DiscoveryTest(unittest.TestCase):
     def test_trial_suffixes(self):
         for stem in ['一_trial001','一_02','一-2','一（2）','一(3)','一 第2次']:
             self.assertEqual(_identify_character(stem,self.chars),'一',stem)
+
+    def test_discover_extracted_directory(self):
+        cfg = {
+            "train_characters": ["一"],
+            "val_characters": ["三"],
+            "test_characters": ["十"],
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "excel"
+            subject_dir = root / "A"
+            subject_dir.mkdir(parents=True)
+            for char in ("一", "三", "十"):
+                (subject_dir / f"{char}.xlsx").write_bytes(b"placeholder")
+            (root / "新表.xlsx").write_bytes(b"metadata")
+            records, ignored, subjects = discover_records(root, cfg)
+        self.assertEqual(len(records), 3)
+        self.assertEqual(subjects, ["A"])
+        self.assertEqual({r["split"] for r in records}, {"train", "val", "test"})
+        self.assertEqual(len(ignored), 1)
+
     def test_unknown_name(self):
         self.assertIsNone(_identify_character('测试文件',self.chars))
         self.assertIsNone(_identify_character('一二',self.chars))
