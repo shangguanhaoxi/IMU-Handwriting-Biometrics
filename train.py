@@ -7,8 +7,8 @@ from omc.engine import fix_seed,get_device,train_epoch,inference,metrics,write_r
 from omc.model import OMC,BoundedUncertaintyWeighting
 
 def main():
- p=argparse.ArgumentParser(description='Train OMC; auto-discovers records inside ZIP, no CSV manifest.')
- p.add_argument('--archive',default='../excel.zip'); p.add_argument('--split_config',default='imu_split_config.json')
+ p=argparse.ArgumentParser(description='Train OMC from an extracted IMU data directory; no CSV manifest.')
+ p.add_argument('--data_path',default='../excel',help='Extracted IMU data directory, e.g. ../excel'); p.add_argument('--split_config',default='imu_split_config.json')
  p.add_argument('--cache_dir',default='cache'); p.add_argument('--output_dir',default='runs/omc_6axis')
  p.add_argument('--input_mode',choices=['acc3','accgyro6'],default='accgyro6'); p.add_argument('--sample_rate',type=float,default=100.)
  p.add_argument('--seq_len',type=int,default=256); p.add_argument('--min_length',type=int,default=16); p.add_argument('--velocity_detrend',action='store_true')
@@ -20,7 +20,7 @@ def main():
  p.add_argument('--seed',type=int,default=42); p.add_argument('--num_workers',type=int,default=0); p.add_argument('--device',default='auto')
  a=p.parse_args(); fix_seed(a.seed); device=get_device(a.device)
  if a.rebuild_cache: shutil.rmtree(a.cache_dir,ignore_errors=True)
- ds=prepare_data(str(Path(a.archive).resolve()),str(Path(a.split_config).resolve()),a.cache_dir,input_mode=a.input_mode,
+ ds=prepare_data(str(Path(a.data_path).resolve()),str(Path(a.split_config).resolve()),a.cache_dir,input_mode=a.input_mode,
    sample_rate=a.sample_rate,seq_len=a.seq_len,min_length=a.min_length,velocity_detrend=a.velocity_detrend,exclude_subjects=a.exclude_subject,rebuild_cache=a.rebuild_cache)
  out=Path(a.output_dir); out.mkdir(parents=True,exist_ok=True)
  tr=FeatureDataset(ds['data']['train'],ds['stats'],True,a.jitter_std); va=FeatureDataset(ds['data']['val'],ds['stats'])
