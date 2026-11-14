@@ -1,0 +1,34 @@
+# Raw and collected IMU data
+*.xlsx
+*.xls
+*.csv
+excel.zip
+data/
+dataset/
+datasets/
+raw_data/
+
+# Features and experiment outputs
+cache/
+features/
+runs/
+outputs/
+checkpoints/
+*.pt
+*.pth
+*.ckpt
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+env/
+
+# IDE / OS
+.idea/
+.vscode/
+.DS_Store
