@@ -1,0 +1,119 @@
+name: Extract OMC project archive
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/extract-omc-archive.yml
+
+permissions:
+  contents: write
+
+jobs:
+  extract:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+
+      - name: Extract project source
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path, PurePosixPath
+          from zipfile import ZipFile
+
+          archive = Path("OMC_IMU_AutoDiscovery_NoManifest.zip")
+          if not archive.is_file():
+              raise SystemExit(f"Archive not found: {archive}")
+
+          prefix = "OMC_IMU_Research/"
+          extracted = 0
+          with ZipFile(archive) as zf:
+              names = zf.namelist()
+              if not any(name.startswith(prefix) for name in names):
+                  raise SystemExit(f"Expected top-level folder {prefix!r} not found")
+
+              for info in zf.infolist():
+                  name = info.filename
+                  if not name.startswith(prefix) or info.is_dir():
+                      continue
+
+                  relative = PurePosixPath(name).relative_to(prefix)
+                  if not relative.parts or any(part in ("..", "") for part in relative.parts):
+                      raise SystemExit(f"Unsafe archive path: {name}")
+
+                  target = Path(*relative.parts)
+                  if target == Path("README.md"):
+                      target = Path("OMC_IMU_README.md")
+
+                  target.parent.mkdir(parents=True, exist_ok=True)
+                  if target.exists():
+                      raise SystemExit(f"Refusing to overwrite existing file: {target}")
+
+                  target.write_bytes(zf.read(info))
+                  extracted += 1
+
+          if extracted == 0:
+              raise SystemExit("No project files were extracted")
+
+          print(f"Extracted {extracted} files.")
+          PY
+
+      - name: Add project .gitignore if missing
+        shell: bash
+        run: |
+          if [ ! -f .gitignore ]; then
+            cat > .gitignore <<'EOF'
+          # Raw and collected IMU data
+          *.xlsx
+          *.xls
+          *.csv
+          excel.zip
+          data/
+          dataset/
+          datasets/
+          raw_data/
+
+          # Features and experiment outputs
+          cache/
+          features/
+          runs/
+          outputs/
+          checkpoints/
+          *.pt
+          *.pth
+          *.ckpt
+
+          # Python
+          __pycache__/
+          *.py[cod]
+          .pytest_cache/
+          .mypy_cache/
+          .ruff_cache/
+          .venv/
+          venv/
+          env/
+
+          # IDE / OS
+          .idea/
+          .vscode/
+          .DS_Store
+          EOF
+          fi
+
+      - name: Commit extracted source files
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add OMC_IMU_README.md requirements.txt imu_split_config.json train.py test.py scan_data.py omc tests .gitignore
+          if git diff --cached --quiet; then
+            echo "No extracted changes to commit."
+            exit 0
+          fi
+          git commit -m "Extract OMC IMU project source from archive"
+          git push origin HEAD:main
