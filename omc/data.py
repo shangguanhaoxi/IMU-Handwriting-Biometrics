@@ -266,7 +266,7 @@ def prepare_data(data_dir, split_config, cache_dir, *, input_mode='accgyro6',sam
     reader = DirectoryReader(data_dir)
     for r in records:
         try:
-        x,t=read_record(reader,r['archive_path'],sample_rate)
+            x,t=read_record(reader,r['archive_path'],sample_rate)
             if len(x)<min_length: raise ValueError(f'too_short: {len(x)} < {min_length}')
             seq,glob,speed=build_features(x,t,input_mode,seq_len,velocity_detrend)
             data[r['split']].append({'seq':seq,'global':glob,'speed':speed,'identity':ids[r['subject']],
