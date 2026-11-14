@@ -3,8 +3,8 @@ import argparse
 from collections import Counter
 from omc.data import discover_records
 
-p=argparse.ArgumentParser()
-p.add_argument('--archive',default='../excel.zip')
+p=argparse.ArgumentParser(description='Scan an extracted IMU data directory or ZIP archive.')
+p.add_argument('--archive','--data_path',dest='archive',default='../excel',help='Extracted data directory (e.g. ../excel) or ZIP archive.')
 p.add_argument('--split_config',default='imu_split_config.json')
 a=p.parse_args()
 records,ignored,subjects=discover_records(a.archive,a.split_config)
