@@ -1,15 +1,16 @@
-"""Automatic ZIP discovery, EMF construction and train-only normalization.
+"""Directory-based IMU discovery, EMF construction and train-only normalization.
 
-Archive convention:
-  excel/<subject>/<character>.xlsx
-  excel/<subject>/<character>_trial001.xlsx
-  excel/<subject>/<character>-02.xls
+Directory convention:
+  <data_dir>/<subject>/<character>.xlsx
+  <data_dir>/<subject>/<character>_trial001.xlsx
+  <data_dir>/<subject>/<character>-02.xls
 
-The character split is read from imu_split_config.json. No CSV manifest is used.
-First 3 channels: gravity-removed linear acceleration; last 3: gyroscope.
+The character split is read from imu_split_config.json. No CSV manifest or ZIP
+archive is used. First 3 channels: gravity-removed linear acceleration;
+last 3: gyroscope.
 """
 from __future__ import annotations
-import hashlib, io, json, logging, re, zipfile
+import hashlib, io, json, logging, re, zlib
 from pathlib import Path
 import numpy as np
 import pandas as pd
@@ -48,44 +49,77 @@ def _identify_character(stem: str, known_chars):
     return None
 
 
-def discover_records(archive, split_config):
-    """Discover all xls/xlsx records and assign split from character lists."""
+class DirectoryReader:
+    """Read files relative to a fixed extracted data directory."""
+    def __init__(self, root):
+        self.root = Path(root).resolve()
+        if not self.root.is_dir():
+            raise NotADirectoryError(f"IMU data directory does not exist: {self.root}")
+
+    def read(self, relative_path):
+        path = (self.root / Path(relative_path)).resolve()
+        if not path.is_relative_to(self.root):
+            raise ValueError(f"Data path escapes root directory: {relative_path}")
+        return path.read_bytes()
+
+
+def discover_records(data_dir, split_config):
+    """Discover xls/xlsx recordings under <data_dir>/<subject>/ and inherit character splits."""
+    root = Path(data_dir).resolve()
+    if not root.is_dir():
+        raise NotADirectoryError(
+            f"Expected an extracted data directory, got: {root}. "
+            "Pass the folder containing subject directories, e.g. ../excel."
+        )
     cfg = load_split_config(split_config) if isinstance(split_config, (str, Path)) else split_config
     split_by_char = {}
-    for split, key in [('train','train_characters'), ('val','val_characters'), ('test','test_characters')]:
-        for c in cfg[key]: split_by_char[c] = split
+    for split, key in [('train', 'train_characters'), ('val', 'val_characters'), ('test', 'test_characters')]:
+        for c in cfg[key]:
+            split_by_char[c] = split
     known = set(split_by_char)
     records, ignored = [], []
-    with zipfile.ZipFile(archive) as zf:
-        for info in zf.infolist():
-            if info.is_dir(): continue
-            p = Path(info.filename)
-            if p.suffix.lower() not in ('.xlsx', '.xls'): continue
-            parts = info.filename.replace('\\','/').split('/')
-            # Skip root-level workbook (e.g. excel/新表.xlsx); it is metadata.
-            if len(parts) < 3 or parts[0] != 'excel':
-                ignored.append({'path':info.filename,'reason':'not under excel/<subject>/'}); continue
-            subject = parts[1]
-            char = _identify_character(p.stem, known)
-            if char is None:
-                ignored.append({'path':info.filename,'reason':'filename does not match a character in split config'}); continue
-            records.append({'subject':subject, 'character':char, 'split':split_by_char[char],
-                            'archive_path':info.filename, 'format':p.suffix.lower().lstrip('.'),
-                            'size':info.file_size, 'crc':info.CRC})
-    if not records: raise ValueError('No records discovered. Check archive layout excel/<subject>/<character>[_trialNNN].xlsx')
-    # Stable record ordering; a file path is a unique recording/trial identifier.
-    records.sort(key=lambda r:(r['subject'], r['character'], r['archive_path']))
-    # Detect likely duplicate zip paths / ambiguous duplicate entries.
-    paths=[r['archive_path'] for r in records]
-    if len(paths) != len(set(paths)): raise ValueError('Duplicate archive paths detected')
-    # Every discovered subject must be represented in all splits for closed-set ID.
-    subjects=sorted({r['subject'] for r in records})
-    for s in subjects:
-        have={r['split'] for r in records if r['subject']==s}
-        missing={'train','val','test'}-have
-        if missing: raise ValueError(f'Subject {s} has no records in splits {sorted(missing)}')
-    return records, ignored, subjects
 
+    for file_path in sorted(root.rglob('*')):
+        if not file_path.is_file() or file_path.suffix.lower() not in ('.xlsx', '.xls'):
+            continue
+        relative_path = file_path.relative_to(root).as_posix()
+        parts = relative_path.split('/')
+        if len(parts) < 2:
+            ignored.append({'path': relative_path, 'reason': 'not under <data_dir>/<subject>/'})
+            continue
+        p = Path(relative_path)
+        char = _identify_character(p.stem, known)
+        if char is None:
+            ignored.append({'path': relative_path, 'reason': 'filename does not match a character in split config'})
+            continue
+        raw = file_path.read_bytes()
+        records.append({
+            'subject': parts[0],
+            'character': char,
+            'split': split_by_char[char],
+            'archive_path': relative_path,
+            'format': p.suffix.lower().lstrip('.'),
+            'size': len(raw),
+            'crc': zlib.crc32(raw) & 0xffffffff,
+        })
+
+    if not records:
+        raise ValueError(
+            f"No recordings discovered under {root}. Expected "
+            "<data_dir>/<subject>/<character>[_trialNNN].xlsx"
+        )
+    records.sort(key=lambda r: (r['subject'], r['character'], r['archive_path']))
+    paths = [r['archive_path'] for r in records]
+    if len(paths) != len(set(paths)):
+        raise ValueError('Duplicate data paths detected')
+
+    subjects = sorted({r['subject'] for r in records})
+    for subject in subjects:
+        have = {r['split'] for r in records if r['subject'] == subject}
+        missing = {'train', 'val', 'test'} - have
+        if missing:
+            raise ValueError(f'Subject {subject} has no records in splits {sorted(missing)}')
+    return records, ignored, subjects
 
 def _numeric_table(frame):
     a=frame.apply(pd.to_numeric,errors='coerce').to_numpy(dtype=np.float64)
@@ -118,11 +152,11 @@ def _extract_time_signal(arr, sample_rate):
     return _unit_to_seconds(t,sample_rate),sig
 
 
-def read_record(zf, archive_path, sample_rate):
-    raw=zf.read(archive_path); suffix=Path(archive_path).suffix.lower()
+def read_record(reader, relative_path, sample_rate):
+    raw=reader.read(relative_path); suffix=Path(relative_path).suffix.lower()
     if suffix=='.xlsx':
         arr=_numeric_table(pd.read_excel(io.BytesIO(raw),header=None,engine='openpyxl'))
-        if arr.shape[1]<6: raise ValueError(f'Expected six columns: {archive_path}, got {arr.shape}')
+        if arr.shape[1]<6: raise ValueError(f'Expected six columns: {relative_path}, got {arr.shape}')
         x=arr[:,:6]; t=np.arange(len(x),dtype=np.float64)/sample_rate
     elif suffix=='.xls':
         book=pd.ExcelFile(io.BytesIO(raw),engine='xlrd'); names=book.sheet_names
@@ -215,30 +249,30 @@ class FeatureDataset(Dataset):
                 'path':s['path'],'character':s['character'],'subject':s['subject']}
 
 
-def prepare_data(archive, split_config, cache_dir, *, input_mode='accgyro6',sample_rate=100.,seq_len=256,
+def prepare_data(data_dir, split_config, cache_dir, *, input_mode='accgyro6',sample_rate=100.,seq_len=256,
                  min_length=16,velocity_detrend=False,exclude_subjects=(),rebuild_cache=False):
-    cfg=load_split_config(split_config); records,ignored,subjects=discover_records(archive,cfg)
+    cfg=load_split_config(split_config); records,ignored,subjects=discover_records(data_dir,cfg)
     records=[r for r in records if r['subject'] not in set(exclude_subjects)]
     subjects=sorted({r['subject'] for r in records})
     settings={'input_mode':input_mode,'sample_rate':sample_rate,'seq_len':seq_len,'min_length':min_length,
               'velocity_detrend':velocity_detrend,'exclude_subjects':sorted(exclude_subjects)}
-    # Include archive member CRCs and split-config contents so adding trials invalidates cache automatically.
+    # Include each directory file's CRC and split config so added/replaced trials invalidate cache.
     fingerprint={'records':[(r['archive_path'],r['size'],r['crc'],r['split']) for r in records],
                  'config':{k:cfg[k] for k in ('train_characters','val_characters','test_characters')},'settings':settings}
     key=hashlib.sha256(json.dumps(fingerprint,sort_keys=True,ensure_ascii=False).encode()).hexdigest()[:20]
     cache_dir=Path(cache_dir); cache_dir.mkdir(parents=True,exist_ok=True); cache=cache_dir/f'features_{key}.pt'
     if cache.exists() and not rebuild_cache: return torch.load(cache,map_location='cpu',weights_only=False)
     ids={s:i for i,s in enumerate(subjects)}; data={'train':[],'val':[],'test':[]}; skipped=[]
-    with zipfile.ZipFile(archive) as zf:
-        for r in records:
-            try:
-                x,t=read_record(zf,r['archive_path'],sample_rate)
-                if len(x)<min_length: raise ValueError(f'too_short: {len(x)} < {min_length}')
-                seq,glob,speed=build_features(x,t,input_mode,seq_len,velocity_detrend)
-                data[r['split']].append({'seq':seq,'global':glob,'speed':speed,'identity':ids[r['subject']],
-                    'subject':r['subject'],'character':r['character'],'path':r['archive_path']})
-            except Exception as e:
-                LOG.warning('Skipping %s: %s',r['archive_path'],e); skipped.append({'path':r['archive_path'],'reason':str(e)})
+    reader = DirectoryReader(data_dir)
+    for r in records:
+        try:
+        x,t=read_record(reader,r['archive_path'],sample_rate)
+            if len(x)<min_length: raise ValueError(f'too_short: {len(x)} < {min_length}')
+            seq,glob,speed=build_features(x,t,input_mode,seq_len,velocity_detrend)
+            data[r['split']].append({'seq':seq,'global':glob,'speed':speed,'identity':ids[r['subject']],
+                'subject':r['subject'],'character':r['character'],'path':r['archive_path']})
+        except Exception as e:
+            LOG.warning('Skipping %s: %s',r['archive_path'],e); skipped.append({'path':r['archive_path'],'reason':str(e)})
     if any(not data[s] for s in data): raise ValueError(f'Empty split after QC: { {k:len(v) for k,v in data.items()} }')
     # Every enrolled identity must have training examples. Validation/test may be
     # incomplete during ongoing collection, but their reported class support is explicit.
