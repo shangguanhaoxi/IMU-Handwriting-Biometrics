@@ -175,7 +175,7 @@ def read_record(reader, relative_path, sample_rate):
         a=xa[mask]; g=np.column_stack([np.interp(t,tg,xg[:,j]) for j in range(3)])
         x=np.concatenate([a,g],axis=1); t=t-t[0]
     else: raise ValueError(f'Unsupported format {suffix}')
-    if not np.isfinite(x).all(): raise ValueError(f'Non-finite values in {archive_path}')
+    if not np.isfinite(x).all(): raise ValueError(f'Non-finite values in {relative_path}')
     return x.astype(np.float32),t.astype(np.float64)
 
 
