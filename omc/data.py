@@ -9,7 +9,8 @@ The character split is read from imu_split_config.json. No CSV manifest is used.
 First 3 channels: gravity-removed linear acceleration; last 3: gyroscope.
 """
 from __future__ import annotations
-import hashlib, io, json, logging, re, zipfile
+import hashlib, io, json, logging, re, zipfile, zlib
+from contextlib import contextmanager
 from pathlib import Path
 import numpy as np
 import pandas as pd
@@ -19,6 +20,29 @@ from torch.utils.data import Dataset
 
 LOG = logging.getLogger(__name__)
 EPS = 1e-8
+
+
+class _DirectoryReader:
+    """Small read-only adapter so directory files share the ZIP reader interface."""
+    def __init__(self, root):
+        self.root = Path(root).resolve()
+
+    def read(self, member):
+        path = (self.root / Path(member)).resolve()
+        if not path.is_relative_to(self.root):
+            raise ValueError(f"Path escapes data directory: {member}")
+        return path.read_bytes()
+
+
+@contextmanager
+def _open_source(source):
+    """Open either an extracted data directory or a ZIP archive."""
+    path = Path(source)
+    if path.is_dir():
+        yield _DirectoryReader(path)
+    else:
+        with zipfile.ZipFile(path) as zf:
+            yield zf
 
 
 def load_split_config(path):
@@ -49,43 +73,66 @@ def _identify_character(stem: str, known_chars):
 
 
 def discover_records(archive, split_config):
-    """Discover all xls/xlsx records and assign split from character lists."""
+    """Discover xls/xlsx recordings from an extracted directory or ZIP archive."""
     cfg = load_split_config(split_config) if isinstance(split_config, (str, Path)) else split_config
     split_by_char = {}
     for split, key in [('train','train_characters'), ('val','val_characters'), ('test','test_characters')]:
-        for c in cfg[key]: split_by_char[c] = split
+        for c in cfg[key]:
+            split_by_char[c] = split
     known = set(split_by_char)
-    records, ignored = [], []
-    with zipfile.ZipFile(archive) as zf:
-        for info in zf.infolist():
-            if info.is_dir(): continue
-            p = Path(info.filename)
-            if p.suffix.lower() not in ('.xlsx', '.xls'): continue
-            parts = info.filename.replace('\\','/').split('/')
-            # Skip root-level workbook (e.g. excel/新表.xlsx); it is metadata.
-            if len(parts) < 3 or parts[0] != 'excel':
-                ignored.append({'path':info.filename,'reason':'not under excel/<subject>/'}); continue
-            subject = parts[1]
-            char = _identify_character(p.stem, known)
-            if char is None:
-                ignored.append({'path':info.filename,'reason':'filename does not match a character in split config'}); continue
-            records.append({'subject':subject, 'character':char, 'split':split_by_char[char],
-                            'archive_path':info.filename, 'format':p.suffix.lower().lstrip('.'),
-                            'size':info.file_size, 'crc':info.CRC})
-    if not records: raise ValueError('No records discovered. Check archive layout excel/<subject>/<character>[_trialNNN].xlsx')
-    # Stable record ordering; a file path is a unique recording/trial identifier.
-    records.sort(key=lambda r:(r['subject'], r['character'], r['archive_path']))
-    # Detect likely duplicate zip paths / ambiguous duplicate entries.
-    paths=[r['archive_path'] for r in records]
-    if len(paths) != len(set(paths)): raise ValueError('Duplicate archive paths detected')
-    # Every discovered subject must be represented in all splits for closed-set ID.
-    subjects=sorted({r['subject'] for r in records})
-    for s in subjects:
-        have={r['split'] for r in records if r['subject']==s}
-        missing={'train','val','test'}-have
-        if missing: raise ValueError(f'Subject {s} has no records in splits {sorted(missing)}')
-    return records, ignored, subjects
+    records, ignored, entries = [], [], []
+    source = Path(archive)
 
+    if source.is_dir():
+        # The supplied directory is the data root, e.g. /root/autodl-tmp/excel.
+        # Expected layout: <data_root>/<subject>/<character>[_trialNNN].xlsx
+        for file_path in sorted(source.rglob('*')):
+            if not file_path.is_file() or file_path.suffix.lower() not in ('.xlsx', '.xls'):
+                continue
+            rel_path = file_path.relative_to(source).as_posix()
+            parts = rel_path.split('/')
+            if len(parts) < 2:
+                ignored.append({'path': rel_path, 'reason': 'not under <data_root>/<subject>/'})
+                continue
+            raw = file_path.read_bytes()
+            entries.append((rel_path, Path(rel_path), parts[0], len(raw), zlib.crc32(raw) & 0xffffffff))
+    else:
+        with zipfile.ZipFile(source) as zf:
+            for info in zf.infolist():
+                if info.is_dir():
+                    continue
+                normalized = info.filename.replace('\\\\', '/')
+                p = Path(normalized)
+                if p.suffix.lower() not in ('.xlsx', '.xls'):
+                    continue
+                parts = normalized.split('/')
+                if len(parts) < 3 or parts[0] != 'excel':
+                    ignored.append({'path': normalized, 'reason': 'not under excel/<subject>/'})
+                    continue
+                entries.append((normalized, p, parts[1], info.file_size, info.CRC))
+
+    for archive_path, p, subject, size, crc in entries:
+        char = _identify_character(p.stem, known)
+        if char is None:
+            ignored.append({'path': archive_path, 'reason': 'filename does not match a character in split config'})
+            continue
+        records.append({'subject': subject, 'character': char, 'split': split_by_char[char],
+                        'archive_path': archive_path, 'format': p.suffix.lower().lstrip('.'),
+                        'size': size, 'crc': crc})
+
+    if not records:
+        raise ValueError('No records discovered. For a directory use <data_root>/<subject>/<character>[_trialNNN].xlsx; for ZIP use excel/<subject>/<character>[_trialNNN].xlsx')
+    records.sort(key=lambda r: (r['subject'], r['character'], r['archive_path']))
+    paths = [r['archive_path'] for r in records]
+    if len(paths) != len(set(paths)):
+        raise ValueError('Duplicate data paths detected')
+    subjects = sorted({r['subject'] for r in records})
+    for subject in subjects:
+        have = {r['split'] for r in records if r['subject'] == subject}
+        missing = {'train', 'val', 'test'} - have
+        if missing:
+            raise ValueError(f'Subject {subject} has no records in splits {sorted(missing)}')
+    return records, ignored, subjects
 
 def _numeric_table(frame):
     a=frame.apply(pd.to_numeric,errors='coerce').to_numpy(dtype=np.float64)
@@ -229,7 +276,7 @@ def prepare_data(archive, split_config, cache_dir, *, input_mode='accgyro6',samp
     cache_dir=Path(cache_dir); cache_dir.mkdir(parents=True,exist_ok=True); cache=cache_dir/f'features_{key}.pt'
     if cache.exists() and not rebuild_cache: return torch.load(cache,map_location='cpu',weights_only=False)
     ids={s:i for i,s in enumerate(subjects)}; data={'train':[],'val':[],'test':[]}; skipped=[]
-    with zipfile.ZipFile(archive) as zf:
+    with _open_source(archive) as zf:
         for r in records:
             try:
                 x,t=read_record(zf,r['archive_path'],sample_rate)
