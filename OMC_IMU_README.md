@@ -1,12 +1,29 @@
-# OMC IMU：自动扫描数据版（无需维护CSV清单）
+# OMC IMU：自动扫描数据版（支持解压目录和ZIP，无需维护CSV清单）
 
 ## 1. 核心变化
 
-旧版训练代码需要手工维护 `imu_split_manifest.csv`。本版本不再读取该文件，直接扫描 `excel.zip`，并根据 `imu_split_config.json` 的字符列表自动分配 train/val/test。
+旧版训练代码需要手工维护 `imu_split_manifest.csv`。本版本不再读取该文件，既可以直接扫描已解压的数据目录（推荐），也可以扫描 `excel.zip`，并根据 `imu_split_config.json` 的字符列表自动分配 train/val/test。
 
 **新增重复采集样本时，只需把新文件放进对应受试者目录，不需要修改CSV，也不需要修改当前固定的JSON划分。**
 
-## 2. 数据压缩包组织规则
+## 2. 数据目录组织规则
+
+推荐直接使用已解压目录 `/root/autodl-tmp/excel`，其内部结构应为：
+
+```text
+/root/autodl-tmp/excel/
+├── A/
+│   ├── 一.xlsx
+│   ├── 一_trial001.xlsx
+│   └── 十.xlsx
+├── B/
+│   └── ...
+└── 新表.xlsx                 # 根目录元数据文件会被忽略
+```
+
+目录模式下，`--data_path ../excel` 指向 `excel` 本身，而不是它的上一级目录。也兼容 ZIP 模式，ZIP 内部仍要求 `excel/<subject>/<character>.xlsx`。
+
+## 2. ZIP 内部组织规则
 
 推荐：
 
@@ -50,7 +67,8 @@ excel.zip
 
 ```text
 /root/autodl-tmp/
-├── excel.zip
+├── excel/                    # 已解压的原始数据，推荐使用
+├── excel.zip                 # 可选备份
 └── OMC_IMU_Research/
     ├── train.py
     ├── test.py
@@ -82,7 +100,7 @@ python train.py \
 
 ## 7. 新增样本后的缓存
 
-本版本缓存指纹包含ZIP内已发现记录的路径、大小、CRC、JSON划分和预处理参数。新增/替换文件后，指纹会变化，自动生成新的特征缓存。一般不需要手工删除缓存。
+本版本缓存指纹包含数据文件的相对路径、大小、CRC、JSON划分和预处理参数。目录模式和ZIP模式均支持自动检测新增或替换的样本。新增/替换文件后，指纹会变化，自动生成新的特征缓存。一般不需要手工删除缓存。
 
 如果需要强制重建：
 
