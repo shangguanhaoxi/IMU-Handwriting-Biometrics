@@ -101,7 +101,7 @@ def discover_records(archive, split_config):
             for info in zf.infolist():
                 if info.is_dir():
                     continue
-                normalized = info.filename.replace('\\\\', '/')
+                normalized = info.filename.replace('\\', '/')
                 p = Path(normalized)
                 if p.suffix.lower() not in ('.xlsx', '.xls'):
                     continue
