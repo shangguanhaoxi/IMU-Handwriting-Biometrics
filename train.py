@@ -7,8 +7,9 @@ from omc.engine import fix_seed,get_device,train_epoch,inference,metrics,write_r
 from omc.model import OMC,BoundedUncertaintyWeighting
 
 def main():
- p=argparse.ArgumentParser(description='Train OMC; auto-discovers records inside ZIP, no CSV manifest.')
- p.add_argument('--archive',default='../excel.zip'); p.add_argument('--split_config',default='imu_split_config.json')
+ p=argparse.ArgumentParser(description='Train OMC from an extracted data directory or ZIP archive; no CSV manifest.')
+ p.add_argument('--archive','--data_path',dest='archive',default='../excel',help='Extracted data directory (e.g. ../excel) or ZIP archive.')
+ p.add_argument('--split_config',default='imu_split_config.json')
  p.add_argument('--cache_dir',default='cache'); p.add_argument('--output_dir',default='runs/omc_6axis')
  p.add_argument('--input_mode',choices=['acc3','accgyro6'],default='accgyro6'); p.add_argument('--sample_rate',type=float,default=100.)
  p.add_argument('--seq_len',type=int,default=256); p.add_argument('--min_length',type=int,default=16); p.add_argument('--velocity_detrend',action='store_true')
