@@ -1,6 +1,7 @@
 name: Extract OMC project archive
 
 on:
+  workflow_dispatch:
   push:
     branches:
       - main
