@@ -1,111 +1,116 @@
-# OMC IMU：自动扫描数据版（无需维护CSV清单）
+# OMC IMU：文件夹自动扫描版（不依赖CSV或ZIP）
 
-## 1. 核心变化
+## 1. 数据输入方式
 
-旧版训练代码需要手工维护 `imu_split_manifest.csv`。本版本不再读取该文件，直接扫描 `excel.zip`，并根据 `imu_split_config.json` 的字符列表自动分配 train/val/test。
+本项目**只从已解压的数据文件夹读取数据**，不再支持 ZIP 输入，也不需要维护 `imu_split_manifest.csv`。
 
-**新增重复采集样本时，只需把新文件放进对应受试者目录，不需要修改CSV，也不需要修改当前固定的JSON划分。**
-
-## 2. 数据压缩包组织规则
-
-推荐：
-
-```text
-excel.zip
-└── excel/
-    ├── A/
-    │   ├── 一.xlsx
-    │   ├── 一_trial001.xlsx
-    │   ├── 一_trial002.xlsx
-    │   ├── 十.xlsx
-    │   └── 十_trial001.xlsx
-    ├── B/
-    │   ├── 一.xlsx
-    │   └── 一_trial001.xlsx
-    └── ...
-```
-
-识别规则：
-
-- `excel/<受试者>/<字符>.xlsx`：原有文件名，自动识别。
-- `excel/<受试者>/<字符>_trial001.xlsx`：推荐的重复采集命名。
-- 也支持 `一-02.xlsx`、`一_02.xlsx`、`一（2）.xlsx` 等字符名后有分隔符/数字的文件。
-- `.xlsx` 前3列为去重力线性加速度，后3列为角速度；不会再次去重力。
-- `.xls` 旧格式由 xlrd 读取，按加速度/陀螺仪工作表和时间戳对齐。
-- `excel/新表.xlsx` 这种根目录索引文件会自动忽略。
-
-请勿把两次独立采集覆盖为同一个文件名。每个trial使用唯一文件名。若采集软件导出的文件名不是上述形式，先按该规则重命名即可。
-
-## 3. 固定划分配置
-
-`imu_split_config.json` 保存字符级划分：35个训练字符、5个验证字符、10个测试字符。程序按字符分配，某个字符的全部用户、全部trial都会落入同一个split。
-
-这份JSON可以保持不变。新增某个已知字符的trial会自动继承其split。例如「一」在train中，那么 `一.xlsx`、`一_trial001.xlsx`、`一_trial002.xlsx` 对所有受试者都属于train；「十」在test中，其所有trial都属于test。
-
-当前协议用于已知用户的跨字符识别。新增受试者时，必须为其提供训练字符记录，模型类别数会变化，需要重新训练；测试旧checkpoint时，如果受试者集合发生变化，程序会报错，避免错误评估。
-
-## 4. 路径约定
-
-建议：
+AutoDL目录约定：
 
 ```text
 /root/autodl-tmp/
-├── excel.zip
-└── OMC_IMU_Research/
+├── excel/                         # 原始IMU数据（已解压）
+│   ├── A/
+│   │   ├── 一.xlsx
+│   │   ├── 一_trial001.xlsx
+│   │   ├── 一_trial002.xlsx
+│   │   └── 十.xlsx
+│   ├── B/
+│   │   └── ...
+│   └── ...
+└── OMC_IMU_Research/              # GitHub代码仓库
     ├── train.py
     ├── test.py
+    ├── scan_data.py
     ├── imu_split_config.json
     └── omc/
 ```
 
-## 5. 安装依赖
+运行命令中的 `--data_path ../excel` 指向包含受试者文件夹（A、B、C……）的 `excel` 目录本身。
 
-确保AutoDL环境已安装 PyTorch 2.5.1+cu124。补充依赖：
+## 2. 文件命名规则
+
+支持：
+
+- `一.xlsx`：字符「一」的原始记录。
+- `一_trial001.xlsx`：字符「一」的第1次重复采集。
+- `一_02.xlsx`、`一-2.xlsx`、`一（2）.xlsx`：也会识别为字符「一」的重复采集。
+- 支持 `.xlsx` 和 `.xls`。
+
+每次独立采集必须使用唯一文件名，不能覆盖已有trial。所有数据必须放在对应受试者的一级子目录下，例如 `excel/A/一_trial001.xlsx`。根目录的汇总表或说明文件会被忽略。
+
+数据格式约定：前三轴为已去除重力分量的线性加速度，后三轴为三轴陀螺仪角速度。程序不会再次去除重力。
+
+## 3. 固定字符划分
+
+`imu_split_config.json` 保存字符级划分：35个训练字符、5个验证字符、10个测试字符。程序按字符自动分配，某个字符的全部用户、全部trial都进入同一个split。
+
+新增已有字符的重复采集文件时，不需要修改CSV或JSON。例如「一」属于train，则所有用户的 `一.xlsx`、`一_trial001.xlsx` 都属于train；「十」属于test，则其所有trial都属于test。
+
+新增全新字符时，必须先决定其属于train、val还是test，并更新JSON；不能自动猜测实验划分。
+
+当前协议用于已知用户的跨字符身份识别。新增受试者后，模型身份类别数发生变化，需要重新训练。测试旧checkpoint时，如果受试者集合与训练时不同，程序会报错，避免错误评估。
+
+## 4. 安装依赖
+
+当前AutoDL环境使用 PyTorch 2.5.1+cu124。必要依赖：
 
 ```bash
 pip install numpy pandas scipy scikit-learn openpyxl xlrd==2.0.2
 ```
 
-## 6. 训练
+## 5. 扫描数据
 
 ```bash
 cd /root/autodl-tmp/OMC_IMU_Research
+python scan_data.py \
+  --data_path ../excel \
+  --split_config imu_split_config.json
+```
+
+扫描程序会打印用户数量、发现的记录数量、train/val/test数量、文件格式以及被忽略文件。
+
+## 6. OMC六轴训练
+
+```bash
 python train.py \
-  --archive ../excel.zip \
+  --data_path ../excel \
   --split_config imu_split_config.json \
   --input_mode accgyro6 \
   --output_dir runs/omc_6axis \
-  --epochs 100 --batch_size 16 --seq_len 256 --sample_rate 100
+  --epochs 100 \
+  --batch_size 16 \
+  --seq_len 256 \
+  --sample_rate 100 \
+  --seed 42
 ```
 
-程序启动时会打印自动发现的记录数、各split保留数量、跳过记录数和用户列表。质量报告保存在 `cache/qc_*.json`。
+质量报告保存在 `cache/qc_*.json`，最佳模型保存在 `runs/omc_6axis/best.pt`。
 
-## 7. 新增样本后的缓存
+## 7. 缓存与新增样本
 
-本版本缓存指纹包含ZIP内已发现记录的路径、大小、CRC、JSON划分和预处理参数。新增/替换文件后，指纹会变化，自动生成新的特征缓存。一般不需要手工删除缓存。
+缓存指纹包含每个数据文件的相对路径、文件大小、CRC32、JSON划分和预处理参数。新增、替换或删除文件后，扫描结果和缓存指纹会变化，程序会生成新的特征缓存。通常不需要手动清理缓存。
 
-如果需要强制重建：
+需要强制重建缓存时：
 
 ```bash
-python train.py --archive ../excel.zip --rebuild_cache
+python train.py --data_path ../excel --rebuild_cache
 ```
 
-注意：新增数据后应重新训练。若只执行 `test.py`，它会重新扫描数据并评估当前checkpoint；这适合评估同一身份集合的新测试trial，但不代表旧模型已经学习了新增训练trial。
+新增训练trial后需要重新训练模型，旧checkpoint不会自动学习新数据。
 
 ## 8. 独立测试
 
 ```bash
 python test.py \
-  --archive ../excel.zip \
+  --data_path ../excel \
   --split_config imu_split_config.json \
   --checkpoint runs/omc_6axis/best.pt \
   --split test
 ```
 
-## 9. 关键实验约束
+## 9. 实验约束
 
-- split由字符决定，不由文件或trial随机决定；这是防止同字符跨训练/测试泄漏的关键。
-- 不要把一个trial切成窗口后再把窗口分配到不同split。
-- 每个用户-字符可有多个trial；这些trial会一起继承字符split。
-- 每次加入数据后，建议保存新版本的 `excel.zip`，以便追溯实验数据版本。
-- 如果新增字符，必须先明确该字符应属于train/val/test中的哪一组，再将字符加入对应JSON列表；本次“无需维护CSV”的改动不意味着可以在不定义评估协议的情况下自动分配新字符。
+- split由字符决定，不由文件或trial随机决定，避免同一字符跨训练/测试泄漏。
+- 不要将同一个trial切窗后再把窗口分配到不同split。
+- 同一个用户-字符可以有多个trial；所有trial继承该字符的固定split。
+- 原始数据只保存在AutoDL，不上传GitHub。
