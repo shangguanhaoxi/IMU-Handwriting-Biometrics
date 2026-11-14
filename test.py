@@ -7,8 +7,9 @@ from omc.engine import get_device,inference,metrics,write_report
 from omc.model import OMC
 
 def main():
- p=argparse.ArgumentParser(description='Evaluate OMC checkpoint; auto-discovers records inside ZIP, no CSV manifest.')
- p.add_argument('--checkpoint',required=True); p.add_argument('--archive',default='../excel.zip'); p.add_argument('--split_config',default='imu_split_config.json')
+ p=argparse.ArgumentParser(description='Evaluate OMC checkpoint from an extracted data directory or ZIP archive; no CSV manifest.')
+ p.add_argument('--checkpoint',required=True); p.add_argument('--archive','--data_path',dest='archive',default='../excel',help='Extracted data directory (e.g. ../excel) or ZIP archive.')
+ p.add_argument('--split_config',default='imu_split_config.json')
  p.add_argument('--cache_dir',default='cache'); p.add_argument('--output_dir',default=''); p.add_argument('--split',choices=['train','val','test'],default='test')
  p.add_argument('--exclude_subject',action='append',default=[]); p.add_argument('--batch_size',type=int,default=32); p.add_argument('--device',default='auto'); a=p.parse_args(); device=get_device(a.device)
  ck=torch.load(a.checkpoint,map_location='cpu',weights_only=False); ds_cfg=ck['data_settings']
