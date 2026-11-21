@@ -9,7 +9,7 @@ from omc.model import OMC,BoundedUncertaintyWeighting
 def main():
  p=argparse.ArgumentParser(description='Train OMC from an extracted IMU data directory; no CSV manifest.')
  p.add_argument('--data_path',default='../excel',help='Extracted IMU data directory, e.g. ../excel'); p.add_argument('--split_config',default='imu_split_config.json')
- p.add_argument('--cache_dir',default='cache'); p.add_argument('--output_dir',default='runs/omc_6axis')
+ p.add_argument('--gravity_config',default='imu_gravity_config.json'); p.add_argument('--cache_dir',default='cache'); p.add_argument('--output_dir',default='runs/omc_6axis')
  p.add_argument('--input_mode',choices=['acc3','accgyro6'],default='accgyro6'); p.add_argument('--sample_rate',type=float,default=100.)
  p.add_argument('--seq_len',type=int,default=256); p.add_argument('--min_length',type=int,default=16); p.add_argument('--velocity_detrend',action='store_true')
  p.add_argument('--rebuild_cache',action='store_true'); p.add_argument('--exclude_subject',action='append',default=[]); p.add_argument('--batch_size',type=int,default=16); p.add_argument('--epochs',type=int,default=100); p.add_argument('--patience',type=int,default=20)
@@ -21,7 +21,7 @@ def main():
  a=p.parse_args(); fix_seed(a.seed); device=get_device(a.device)
  if a.rebuild_cache: shutil.rmtree(a.cache_dir,ignore_errors=True)
  ds=prepare_data(str(Path(a.data_path).resolve()),str(Path(a.split_config).resolve()),a.cache_dir,input_mode=a.input_mode,
-   sample_rate=a.sample_rate,seq_len=a.seq_len,min_length=a.min_length,velocity_detrend=a.velocity_detrend,exclude_subjects=a.exclude_subject,rebuild_cache=a.rebuild_cache)
+   sample_rate=a.sample_rate,seq_len=a.seq_len,min_length=a.min_length,velocity_detrend=a.velocity_detrend,exclude_subjects=a.exclude_subject,rebuild_cache=a.rebuild_cache,gravity_config=a.gravity_config)
  out=Path(a.output_dir); out.mkdir(parents=True,exist_ok=True)
  tr=FeatureDataset(ds['data']['train'],ds['stats'],True,a.jitter_std); va=FeatureDataset(ds['data']['val'],ds['stats'])
  tl=DataLoader(tr,batch_size=a.batch_size,shuffle=True,num_workers=a.num_workers,pin_memory=device.type=='cuda')
@@ -43,7 +43,7 @@ def main():
   if met['macro_f1']>best+1e-6:
    best=met['macro_f1']; stale=0; best_epoch=epoch
    ck={'model_state':model.state_dict(),'awl_state':awl.state_dict(),'architecture':arch,'stats':ds['stats'],'subjects':ds['subjects'],
-       'velocity_thresholds':ds['velocity_thresholds'],'character_split':ds['character_split'],'data_settings':{'input_mode':a.input_mode,'sample_rate':a.sample_rate,'seq_len':a.seq_len,'min_length':a.min_length,'velocity_detrend':a.velocity_detrend},
+       'velocity_thresholds':ds['velocity_thresholds'],'gravity_config':ds['gravity_config'],'character_split':ds['character_split'],'data_settings':{'input_mode':a.input_mode,'sample_rate':a.sample_rate,'seq_len':a.seq_len,'min_length':a.min_length,'velocity_detrend':a.velocity_detrend,'gravity_config_digest':ds['gravity_config_digest']},
        'arc_margin':a.arc_margin,'arc_scale':a.arc_scale,'epoch':epoch,'best_val_macro_f1':best,
        'loss_settings':{'ort_lambda':a.ort_lambda,'use_arcface':not a.no_arcface}}
    torch.save(ck,out/'best.pt'); write_report(out/'validation_best',met,cm,rows,ds['subjects'])
