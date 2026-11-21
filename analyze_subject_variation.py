@@ -14,7 +14,7 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
-from sklearn.metrics import confusion_matrix, precision_recall_fscore_support
+from sklearn.metrics import accuracy_score, confusion_matrix, f1_score, precision_recall_fscore_support
 from sklearn.preprocessing import StandardScaler
 from sklearn.metrics.pairwise import cosine_similarity
 
@@ -275,6 +275,55 @@ def _prediction_analysis(prediction_path: Path, records_df: pd.DataFrame, subjec
     pair_counts = errors.groupby(["true_subject", "predicted_subject"]).size().reset_index(name="n_errors")
     pair_counts = pair_counts.sort_values("n_errors", ascending=False)
     pair_counts.to_csv(out / "confusion_pairs.csv", index=False, encoding="utf-8-sig")
+
+    # The current OMC checkpoint may also emit VAT speed-class predictions.
+    if {"velocity_label", "velocity_prediction"}.issubset(merged.columns):
+        vy = pd.to_numeric(merged["velocity_label"], errors="coerce")
+        vp = pd.to_numeric(merged["velocity_prediction"], errors="coerce")
+        valid = vy.notna() & vp.notna()
+        if valid.any():
+            vy = vy[valid].astype(int)
+            vp = vp[valid].astype(int)
+            velocity_classes = sorted(set(vy.tolist()) | set(vp.tolist()))
+            vat_cm = confusion_matrix(vy, vp, labels=velocity_classes)
+            vat_precision, vat_recall, vat_f1, vat_support = precision_recall_fscore_support(
+                vy, vp, labels=velocity_classes, zero_division=0
+            )
+            vat_report = {
+                "n_samples": int(len(vy)),
+                "accuracy": float(accuracy_score(vy, vp)),
+                "macro_f1": float(f1_score(vy, vp, labels=velocity_classes, average="macro", zero_division=0)),
+                "classes": velocity_classes,
+                "class_support": [int(x) for x in vat_support],
+            }
+            (out / "vat_metrics.json").write_text(
+                json.dumps(vat_report, ensure_ascii=False, indent=2), encoding="utf-8"
+            )
+            pd.DataFrame({
+                "velocity_class": velocity_classes,
+                "support": vat_support.astype(int),
+                "precision": vat_precision,
+                "recall": vat_recall,
+                "f1": vat_f1,
+            }).to_csv(out / "vat_per_class_metrics.csv", index=False, encoding="utf-8-sig")
+            pd.DataFrame(vat_cm, index=velocity_classes, columns=velocity_classes).to_csv(
+                out / "vat_confusion_matrix.csv", encoding="utf-8-sig"
+            )
+            vat_rows = []
+            valid_rows = merged.loc[valid].copy()
+            for subject, group in valid_rows.groupby("true_subject"):
+                vat_rows.append({
+                    "subject": subject,
+                    "n_samples": int(len(group)),
+                    "vat_accuracy": float(
+                        (pd.to_numeric(group["velocity_label"]) ==
+                         pd.to_numeric(group["velocity_prediction"])).mean()
+                    ),
+                })
+            pd.DataFrame(vat_rows).to_csv(
+                out / "vat_per_subject_metrics.csv", index=False, encoding="utf-8-sig"
+            )
+
     numeric = [c for c in records_df.select_dtypes(include=[np.number]).columns]
     if numeric:
         error_summary = merged.groupby("correct")[numeric].agg(["mean", "std", "count"])
