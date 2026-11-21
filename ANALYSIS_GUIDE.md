@@ -56,6 +56,8 @@ fallback sampling rate for XLSX files, sequence length 256, and minimum length
    exports per-subject precision/recall/F1, a labeled confusion matrix,
    true-to-predicted confusion pairs, individual error records with motion
    features, and feature summaries for correct versus incorrect test records.
+   If VAT columns are present in predictions.csv, it also exports overall,
+   per-class, and per-subject VAT speed-class metrics and a VAT confusion matrix.
 
 ## Main outputs
 
@@ -70,6 +72,8 @@ fallback sampling rate for XLSX files, sequence length 256, and minimum length
   predictions were supplied.
 - error_samples.csv and confusion_pairs.csv: test error trace, if
   predictions were supplied.
+- vat_metrics.json, vat_per_class_metrics.csv, vat_per_subject_metrics.csv,
+  and vat_confusion_matrix.csv: VAT diagnostics when velocity predictions exist.
 - PNG plots for motion magnitude, speed proxy versus duration, similarity
   groups, test accuracy, and test confusion matrix when matplotlib is installed.
 - analysis_summary.json and analysis_skipped_records.csv: run metadata
