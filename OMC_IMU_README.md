@@ -128,3 +128,61 @@ python analyze_subject_variation.py \
 ~~~
 
 详细指标定义、输出文件说明和解释注意事项见 ANALYSIS_GUIDE.md。该脚本只做分析，不训练模型，也不会修改训练缓存或checkpoint。
+
+## 11. 按受试者统一加速度重力处理（暂定采集类型）
+
+根目录新增 imu_gravity_config.json，记录暂定采集方式：
+
+- A、B、C、D、E：linear_acceleration_subjects，认为已去除重力，六轴信号保持原样。
+- F、lrx、sg、yl、ypb、zjl、zjq、zpc：raw_acceleration_subjects，认为含重力，先估计并移除三轴低频分量。
+
+默认在 raw_acceleration_subjects 上使用二阶零相位 Butterworth 低通（截止频率 0.5 Hz）估计重力，再从前三轴加速度中扣除。该算法属于**估计性重力补偿**，不是利用姿态解算得到的真实重力；低频书写运动也可能被削弱，尤其是时长较短的书写样本。配置判断尚待核实采集API和字段定义。不要擅自将去重力和含重力数据直接合并作为物理一致的线性加速度。
+
+修正后的预处理会同时用于训练、验证、测试、VAT速度标签构造和受试者分析。配置文件内容的 SHA256 会进入缓存指纹和新checkpoint；旧checkpoint无法自动适配新特征，必须重新训练。
+
+建议新训练输出目录，不覆盖旧基线：
+
+~~~bash
+python train.py \
+  --data_path ../excel \
+  --split_config imu_split_config.json \
+  --gravity_config imu_gravity_config.json \
+  --input_mode accgyro6 \
+  --output_dir runs/omc_6axis_gravity_vat \
+  --epochs 100 \
+  --patience 20 \
+  --batch_size 16 \
+  --seq_len 256 \
+  --sample_rate 100 \
+  --seed 42
+~~~
+
+测试新checkpoint：
+
+~~~bash
+python test.py \
+  --data_path ../excel \
+  --split_config imu_split_config.json \
+  --gravity_config imu_gravity_config.json \
+  --checkpoint runs/omc_6axis_gravity_vat/best.pt \
+  --split test
+~~~
+
+分析数据时：
+
+~~~bash
+python analyze_subject_variation.py \
+  --data_path ../excel \
+  --split_config imu_split_config.json \
+  --gravity_config imu_gravity_config.json \
+  --output_dir analysis/subject_diagnostics_gravity \
+  --predictions runs/omc_6axis_gravity_vat/evaluation_test/predictions.csv
+~~~
+
+分析 CSV 中 raw_acc_mean_vector_norm 保留原始加速度均值向量模长，corrected_acc_mean_vector_norm 为补偿后对应值。二者只用于诊断，不应被直接解释为采集类型的严格物理证明。
+
+运行测试：
+
+~~~bash
+python -m unittest discover -s tests -v
+~~~
