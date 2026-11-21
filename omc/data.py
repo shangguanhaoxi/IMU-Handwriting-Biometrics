@@ -17,6 +17,7 @@ import pandas as pd
 import torch
 from scipy.stats import rankdata
 from torch.utils.data import Dataset
+from .gravity import DEFAULT_GRAVITY_CONFIG, correct_gravity, load_gravity_config, validate_gravity_subjects
 
 LOG = logging.getLogger(__name__)
 EPS = 1e-8
@@ -250,12 +251,16 @@ class FeatureDataset(Dataset):
 
 
 def prepare_data(data_dir, split_config, cache_dir, *, input_mode='accgyro6',sample_rate=100.,seq_len=256,
-                 min_length=16,velocity_detrend=False,exclude_subjects=(),rebuild_cache=False):
+                 min_length=16,velocity_detrend=False,exclude_subjects=(),rebuild_cache=False,
+                 gravity_config=DEFAULT_GRAVITY_CONFIG):
     cfg=load_split_config(split_config); records,ignored,subjects=discover_records(data_dir,cfg)
+    gravity_cfg = load_gravity_config(gravity_config)
+    validate_gravity_subjects(gravity_cfg, subjects)
     records=[r for r in records if r['subject'] not in set(exclude_subjects)]
     subjects=sorted({r['subject'] for r in records})
     settings={'input_mode':input_mode,'sample_rate':sample_rate,'seq_len':seq_len,'min_length':min_length,
-              'velocity_detrend':velocity_detrend,'exclude_subjects':sorted(exclude_subjects)}
+              'velocity_detrend':velocity_detrend,'exclude_subjects':sorted(exclude_subjects),
+              'gravity_config_digest':gravity_cfg['_digest']}
     # Include each directory file's CRC and split config so added/replaced trials invalidate cache.
     fingerprint={'records':[(r['archive_path'],r['size'],r['crc'],r['split']) for r in records],
                  'config':{k:cfg[k] for k in ('train_characters','val_characters','test_characters')},'settings':settings}
@@ -268,6 +273,7 @@ def prepare_data(data_dir, split_config, cache_dir, *, input_mode='accgyro6',sam
         try:
             x,t=read_record(reader,r['archive_path'],sample_rate)
             if len(x)<min_length: raise ValueError(f'too_short: {len(x)} < {min_length}')
+            x,_ = correct_gravity(x,t,r['subject'],gravity_cfg)
             seq,glob,speed=build_features(x,t,input_mode,seq_len,velocity_detrend)
             data[r['split']].append({'seq':seq,'global':glob,'speed':speed,'identity':ids[r['subject']],
                 'subject':r['subject'],'character':r['character'],'path':r['archive_path']})
@@ -284,6 +290,7 @@ def prepare_data(data_dir, split_config, cache_dir, *, input_mode='accgyro6',sam
         for x in items: x['velocity']=int(np.searchsorted([q1,q2],x['speed'],side='right'))
     stats=fit_stats(data['train'])
     payload={'data':data,'stats':stats,'subjects':subjects,'velocity_thresholds':[q1,q2],
+             'gravity_config_digest':gravity_cfg['_digest'],'gravity_config':{k:v for k,v in gravity_cfg.items() if k!='_digest'},
              'settings':settings,'records_discovered':len(records),'ignored':ignored,'skipped':skipped,
              'split_counts':{k:len(v) for k,v in data.items()},'character_split':{k:cfg[k] for k in ('train_characters','val_characters','test_characters')}}
     torch.save(payload,cache)
