@@ -13,6 +13,7 @@ cache/
 features/
 runs/
 outputs/
+analysis/
 checkpoints/
 *.pt
 *.pth
