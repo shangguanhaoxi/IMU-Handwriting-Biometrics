@@ -18,7 +18,7 @@ from sklearn.metrics import confusion_matrix, precision_recall_fscore_support
 from sklearn.preprocessing import StandardScaler
 from sklearn.metrics.pairwise import cosine_similarity
 
-from omc.data import DirectoryReader, build_features, discover_records, read_record
+from omc.data import DirectoryReader, _integrate, build_features, discover_records, read_record
 
 LOG = logging.getLogger("subject_analysis")
 AXES = ("x", "y", "z")
@@ -106,10 +106,7 @@ def _record_features(x: np.ndarray, t: np.ndarray, seq_len: int, input_mode: str
             result[f"corr_acc_{acc_axis}_gyro_{gyro_axis}"] = _safe_corr(acc[:, i], gyro[:, j])
 
     # Keep the same no-detrending integration convention as build_features.
-    velocity = np.concatenate(
-        [np.zeros((1, 3)), np.cumsum(0.5 * (acc[1:] + acc[:-1]) * np.diff(t)[:, None], axis=0)],
-        axis=0,
-    )
+    velocity = _integrate(acc, t, detrend=False)
     speed = np.linalg.norm(velocity, axis=1)
     result["velocity_proxy_mean"] = float(np.mean(speed))
     result["velocity_proxy_std"] = float(np.std(speed))
