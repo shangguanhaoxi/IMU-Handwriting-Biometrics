@@ -9,10 +9,11 @@ from omc.model import OMC
 def main():
  p=argparse.ArgumentParser(description='Evaluate OMC checkpoint from an extracted IMU data directory; no CSV manifest.')
  p.add_argument('--checkpoint',required=True); p.add_argument('--data_path',default='../excel',help='Extracted IMU data directory, e.g. ../excel'); p.add_argument('--split_config',default='imu_split_config.json')
- p.add_argument('--cache_dir',default='cache'); p.add_argument('--output_dir',default=''); p.add_argument('--split',choices=['train','val','test'],default='test')
+ p.add_argument('--gravity_config',default='imu_gravity_config.json'); p.add_argument('--cache_dir',default='cache'); p.add_argument('--output_dir',default=''); p.add_argument('--split',choices=['train','val','test'],default='test')
  p.add_argument('--exclude_subject',action='append',default=[]); p.add_argument('--batch_size',type=int,default=32); p.add_argument('--device',default='auto'); a=p.parse_args(); device=get_device(a.device)
  ck=torch.load(a.checkpoint,map_location='cpu',weights_only=False); ds_cfg=ck['data_settings']
- ds=prepare_data(str(Path(a.data_path).resolve()),str(Path(a.split_config).resolve()),a.cache_dir,input_mode=ds_cfg['input_mode'],sample_rate=ds_cfg['sample_rate'],seq_len=ds_cfg['seq_len'],min_length=ds_cfg['min_length'],velocity_detrend=ds_cfg['velocity_detrend'],exclude_subjects=a.exclude_subject)
+ ds=prepare_data(str(Path(a.data_path).resolve()),str(Path(a.split_config).resolve()),a.cache_dir,input_mode=ds_cfg['input_mode'],sample_rate=ds_cfg['sample_rate'],seq_len=ds_cfg['seq_len'],min_length=ds_cfg['min_length'],velocity_detrend=ds_cfg['velocity_detrend'],exclude_subjects=a.exclude_subject,gravity_config=a.gravity_config)
+ if ds_cfg.get('gravity_config_digest') != ds['gravity_config_digest']: raise ValueError('Gravity preprocessing differs from checkpoint. Use the same gravity JSON and retrain old checkpoints before evaluating.')
  if ck.get('character_split') != ds['character_split']: raise ValueError('Character split differs from checkpoint. Use the same split config as training.')
  if ck['subjects']!=ds['subjects']: raise ValueError(f"Subject list differs from checkpoint. checkpoint={ck['subjects']} current={ds['subjects']}. Retrain after adding/removing identities.")
  q1,q2=ck['velocity_thresholds']
