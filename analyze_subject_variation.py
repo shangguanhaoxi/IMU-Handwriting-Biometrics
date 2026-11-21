@@ -19,6 +19,7 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.metrics.pairwise import cosine_similarity
 
 from omc.data import DirectoryReader, _integrate, build_features, discover_records, read_record
+from omc.gravity import correct_gravity, load_gravity_config, validate_gravity_subjects
 
 LOG = logging.getLogger("subject_analysis")
 AXES = ("x", "y", "z")
@@ -407,6 +408,7 @@ def main():
     parser = argparse.ArgumentParser(description="Analyze subject-specific IMU motion variation and cross-character stability.")
     parser.add_argument("--data_path", default="../excel", help="Extracted IMU data directory")
     parser.add_argument("--split_config", default="imu_split_config.json")
+    parser.add_argument("--gravity_config", default="imu_gravity_config.json")
     parser.add_argument("--output_dir", default="analysis/subject_diagnostics")
     parser.add_argument("--predictions", default="", help="Optional predictions.csv from test.py for error analysis")
     parser.add_argument("--input_mode", choices=["accgyro6"], default="accgyro6", help="This diagnostic currently targets the six-axis experiment")
@@ -425,6 +427,8 @@ def main():
     out.mkdir(parents=True, exist_ok=True)
 
     records, ignored, subjects = discover_records(data_root, split_path)
+    gravity_cfg = load_gravity_config(args.gravity_config)
+    validate_gravity_subjects(gravity_cfg, subjects)
     reader = DirectoryReader(data_root)
     rows = []
     skipped = []
@@ -433,7 +437,16 @@ def main():
             x, t = read_record(reader, record["archive_path"], args.sample_rate)
             if len(x) < args.min_length:
                 raise ValueError(f"too_short: {len(x)} < {args.min_length}")
+            raw_mean_vector = float(np.linalg.norm(np.mean(x[:, :3], axis=0)))
+            x, estimated_gravity = correct_gravity(x, t, record["subject"], gravity_cfg)
             features = _record_features(x, t, args.seq_len, args.input_mode)
+            features["raw_acc_mean_vector_norm"] = raw_mean_vector
+            features["estimated_gravity_mean_vector_norm"] = float(
+                np.linalg.norm(np.mean(estimated_gravity, axis=0))
+            )
+            features["corrected_acc_mean_vector_norm"] = float(
+                np.linalg.norm(np.mean(x[:, :3], axis=0))
+            )
             rows.append({
                 "path": record["archive_path"],
                 "subject": record["subject"],
@@ -479,12 +492,15 @@ def main():
         "subjects": subjects,
         "split_counts_parsed": {str(k): int(v) for k, v in records_df["split"].value_counts().to_dict().items()},
         "focus_subjects": focus_subjects,
+        "gravity_config_digest": gravity_cfg["_digest"],
+        "gravity_config": {k: v for k, v in gravity_cfg.items() if k != "_digest"},
         "split_for_similarity": args.split_for_similarity,
         "similarity_feature_count": len(feature_cols),
         "similarity_note": "Repeated trials are averaged within each subject-character pair. Cosine similarity is computed on standardized handcrafted EMF global features plus per-channel sequence mean/std/RMS; it is not an OMC learned embedding.",
         "focus_group_note": "The focus-versus-other comparison uses equal-weight subject-level means from the training split and is descriptive, not a significance test.",
         "velocity_note": "velocity_proxy is obtained by integrating gravity-removed linear acceleration with zero initial velocity and no drift correction; it is a proxy, not ground-truth pen velocity.",
         "unit_note": "Raw acceleration and gyroscope units are preserved from source spreadsheets; no unit conversion is assumed.",
+        "correction_note": "EMF and velocity summaries are computed on corrected acceleration. The raw_acc_mean_vector_norm metric records the pre-correction acceleration offset; the correction is only a low-frequency estimate of gravity, not ground truth.",
         "skipped": skipped,
     }
     (out / "analysis_summary.json").write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
