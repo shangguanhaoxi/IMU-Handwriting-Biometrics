@@ -114,3 +114,17 @@ python test.py \
 - 不要将同一个trial切窗后再把窗口分配到不同split。
 - 同一个用户-字符可以有多个trial；所有trial继承该字符的固定split。
 - 原始数据只保存在AutoDL，不上传GitHub。
+
+## 10. 受试者运动差异与跨字符稳定性分析
+
+新增 analyze_subject_variation.py，用于统计六轴原始运动特征、EMF特征、不同受试者的运动分布，以及同一受试者跨字符的特征相似性。可选传入 test.py 生成的 predictions.csv，进一步导出逐受试者指标和错误样本明细。
+
+~~~bash
+python analyze_subject_variation.py \
+  --data_path ../excel \
+  --split_config imu_split_config.json \
+  --output_dir analysis/subject_diagnostics \
+  --predictions runs/omc_6axis_vat/evaluation_test/predictions.csv
+~~~
+
+详细指标定义、输出文件说明和解释注意事项见 ANALYSIS_GUIDE.md。该脚本只做分析，不训练模型，也不会修改训练缓存或checkpoint。
