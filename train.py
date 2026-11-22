@@ -9,7 +9,7 @@ from omc.model import OMC,BoundedUncertaintyWeighting
 def main():
  p=argparse.ArgumentParser(description='Train OMC from an extracted IMU data directory; no CSV manifest.')
  p.add_argument('--data_path',default='../excel',help='Extracted IMU data directory, e.g. ../excel'); p.add_argument('--split_config',default='imu_split_config.json')
- p.add_argument('--gravity_config',default='imu_gravity_config.json'); p.add_argument('--cache_dir',default='cache'); p.add_argument('--output_dir',default='runs/omc_6axis')
+ p.add_argument('--gravity_config',default='imu_gravity_config.json'); p.add_argument('--cache_dir',default='cache'); p.add_argument('--output_dir',default='runs/omc_9subject_vat')
  p.add_argument('--input_mode',choices=['acc3','accgyro6'],default='accgyro6'); p.add_argument('--sample_rate',type=float,default=100.)
  p.add_argument('--seq_len',type=int,default=256); p.add_argument('--min_length',type=int,default=16); p.add_argument('--velocity_detrend',action='store_true')
  p.add_argument('--rebuild_cache',action='store_true'); p.add_argument('--exclude_subject',action='append',default=[]); p.add_argument('--batch_size',type=int,default=16); p.add_argument('--epochs',type=int,default=100); p.add_argument('--patience',type=int,default=20)
