@@ -33,6 +33,17 @@ def load_split_config(path):
         raise ValueError('Each train/val/test character list must be non-empty')
     if groups['train_characters'] & groups['val_characters'] or groups['train_characters'] & groups['test_characters'] or groups['val_characters'] & groups['test_characters']:
         raise ValueError('Character lists in split config overlap')
+    if 'active_subjects' in cfg:
+        active = cfg['active_subjects']
+        if not isinstance(active, list) or not active or any(not isinstance(s, str) or not s.strip() for s in active):
+            raise ValueError('active_subjects must contain nonempty subject IDs')
+        if len(set(active)) != len(active):
+            raise ValueError('Duplicate active_subjects in split config')
+        retired = cfg.get('retired_duplicate_subjects', {})
+        if not isinstance(retired, dict) or set(retired) & set(active):
+            raise ValueError('retired_duplicate_subjects overlaps active_subjects or is invalid')
+        if any(s not in active for s in retired.values()):
+            raise ValueError('Retired identities must map to an active subject')
     return cfg
 
 
@@ -115,6 +126,16 @@ def discover_records(data_dir, split_config):
         raise ValueError('Duplicate data paths detected')
 
     subjects = sorted({r['subject'] for r in records})
+    if 'active_subjects' in cfg:
+        expected = set(cfg['active_subjects'])
+        actual = set(subjects)
+        if actual != expected:
+            raise ValueError(
+                f"Detected subject folders do not match active_subjects. "
+                f"Extra={sorted(actual - expected)}; missing={sorted(expected - actual)}. "
+                "Remove retired duplicate folders B/C/D/E from the data directory "
+                "or update the subject configuration explicitly."
+            )
     for subject in subjects:
         have = {r['split'] for r in records if r['subject'] == subject}
         missing = {'train', 'val', 'test'} - have
@@ -263,7 +284,8 @@ def prepare_data(data_dir, split_config, cache_dir, *, input_mode='accgyro6',sam
               'gravity_config_digest':gravity_cfg['_digest']}
     # Include each directory file's CRC and split config so added/replaced trials invalidate cache.
     fingerprint={'records':[(r['archive_path'],r['size'],r['crc'],r['split']) for r in records],
-                 'config':{k:cfg[k] for k in ('train_characters','val_characters','test_characters')},'settings':settings}
+                 'config':{k:cfg[k] for k in ('train_characters','val_characters','test_characters')},
+                 'active_subjects':cfg.get('active_subjects',subjects),'settings':settings}
     key=hashlib.sha256(json.dumps(fingerprint,sort_keys=True,ensure_ascii=False).encode()).hexdigest()[:20]
     cache_dir=Path(cache_dir); cache_dir.mkdir(parents=True,exist_ok=True); cache=cache_dir/f'features_{key}.pt'
     if cache.exists() and not rebuild_cache: return torch.load(cache,map_location='cpu',weights_only=False)
