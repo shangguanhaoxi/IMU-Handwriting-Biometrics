@@ -1,12 +1,8 @@
 {
   "schema_version": 1,
-  "description": "PROVISIONAL subject-level accelerometer type based on collection notes and exploratory feature statistics. Verify against acquisition API/export columns before treating as ground truth.",
+  "description": "PROVISIONAL accelerometer conventions for the 9 retained unique writers. Historical B/C/D/E are duplicate identities of A and are excluded from the active dataset. Confirm acquisition API.",
   "linear_acceleration_subjects": [
-    "A",
-    "B",
-    "C",
-    "D",
-    "E"
+    "A"
   ],
   "raw_acceleration_subjects": [
     "F",
@@ -27,6 +23,7 @@
     "Linear acceleration subjects are left unchanged.",
     "For raw acceleration, low-pass filtering estimates the slowly varying gravity component and subtracts it on each axis; this is not exact inertial gravity separation.",
     "Low frequency handwriting dynamics can also be suppressed, especially in short trials. Verify sensor coordinates, sample timing and acquisition field definitions.",
-    "Do not use old checkpoints or cached features with the corrected pipeline."
+    "Historical B/C/D/E were duplicate folders of writer A, now retired. Never interpret legacy 13-class results as distinct-writer identity accuracy.",
+    "Old 13-class checkpoints and summaries are invalid for the 9-identity dataset. Train a fresh model; do not reuse the old checkpoint."
   ]
 }
