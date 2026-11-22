@@ -412,7 +412,7 @@ def main():
     parser.add_argument("--output_dir", default="analysis/subject_diagnostics")
     parser.add_argument("--predictions", default="", help="Optional predictions.csv from test.py for error analysis")
     parser.add_argument("--input_mode", choices=["accgyro6"], default="accgyro6", help="This diagnostic currently targets the six-axis experiment")
-    parser.add_argument("--focus_subjects", default="A,B,C,D,E", help="Comma-separated group to compare against other subjects")
+    parser.add_argument("--focus_subjects", default="A", help="Comma-separated active writers to compare descriptively against the others; defaults to A")
     parser.add_argument("--sample_rate", type=float, default=100.0)
     parser.add_argument("--seq_len", type=int, default=256)
     parser.add_argument("--min_length", type=int, default=16)
