@@ -1,4 +1,6 @@
-# Subject-specific IMU motion diagnostics
+# Subject-specific IMU motion diagnostics (9 unique writers)
+
+**Identity correction (2026-11-22):** Historical folders B/C/D/E were aliases of the same physical writer as A. Only A is retained; current active writers are A, F, lrx, sg, yl, ypb, zjl, zjq, zpc. Do not draw distinct-identity conclusions from older 13-class diagnostic outputs.
 
 This analysis script is for the current six-axis OMC experiment. It reads the
 already-extracted data directory and writes descriptive reports; it does not
@@ -15,7 +17,7 @@ python analyze_subject_variation.py \
   --data_path ../excel \
   --split_config imu_split_config.json \
   --output_dir analysis/subject_diagnostics \
-  --predictions runs/omc_6axis_vat/evaluation_test/predictions.csv
+  --predictions runs/omc_9subject_vat/evaluation_test/predictions.csv
 ~~~
 
 If the test predictions are stored elsewhere, pass their actual path to
@@ -43,9 +45,9 @@ fallback sampling rate for XLSX files, sequence length 256, and minimum length
    and RMS of each of the 20 EMF sequence channels.
 4. **Subject and split summaries**: per-subject statistics separately for
    train, validation, and test.
-5. **A-E versus other subjects**: a descriptive comparison using equal-weight
+5. **Focus writer versus other subjects**: a descriptive comparison using equal-weight
    subject-level means from the training split. Change the group with
-   --focus_subjects A,B,C,D,E. This is not a significance test.
+   --focus_subjects A. This is not a significance test.
 6. **Cross-character feature similarity**: by default, use training records
    only. Repeated trials are first averaged within each subject-character pair.
    It compares (a) the same person's different characters, (b) different
@@ -64,7 +66,7 @@ fallback sampling rate for XLSX files, sequence length 256, and minimum length
 - record_level_features.csv: one row per successfully parsed recording.
 - subject_split_summary.csv: per-subject, per-split means and standard
   deviations.
-- focus_group_vs_others_train.csv: A-E versus the remaining subjects,
+- focus_group_vs_others_train.csv: selected writer(s) versus the remaining subjects,
   based on equal-weight subject averages from training data.
 - feature_similarity_pair_summary.csv: group-level pairwise similarity.
 - per_subject_cross_character_similarity.csv: per-subject similarity.
@@ -84,7 +86,7 @@ fallback sampling rate for XLSX files, sequence length 256, and minimum length
 - Do not interpret the integrated-acceleration speed proxy as true writing
   speed. Bias, initial velocity, timestamp quality, and integration drift can
   affect it.
-- Do not infer a causal explanation from the A-E group comparison. It is
+- Do not infer a causal explanation from the focus-writer group comparison. It is
   descriptive and should be followed by per-record inspection and repeated
   experiments.
 - Cross-character similarity is computed from handcrafted EMF summaries, not
