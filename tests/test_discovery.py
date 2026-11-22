@@ -47,6 +47,44 @@ class DiscoveryTest(unittest.TestCase):
                     'test_characters': ['十'],
                 })
 
+    def test_retired_identity_folder_is_rejected(self):
+        cfg = {
+            'train_characters': ['一'],
+            'val_characters': ['三'],
+            'test_characters': ['十'],
+            'active_subjects': ['A', 'F'],
+            'retired_duplicate_subjects': {'B': 'A'},
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            for subject in ('A', 'F', 'B'):
+                folder = root / subject
+                folder.mkdir()
+                for char in ('一', '三', '十'):
+                    (folder / f'{char}.xlsx').write_bytes(b'placeholder')
+            with self.assertRaisesRegex(ValueError, 'active_subjects'):
+                discover_records(root, cfg)
+
+    def test_only_unique_active_subjects(self):
+        cfg = {
+            'train_characters': ['一'],
+            'val_characters': ['三'],
+            'test_characters': ['十'],
+            'active_subjects': ['A', 'F'],
+            'retired_duplicate_subjects': {'B': 'A'},
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            for subject in ('A', 'F'):
+                folder = root / subject
+                folder.mkdir()
+                for char in ('一', '三', '十'):
+                    (folder / f'{char}.xlsx').write_bytes(b'placeholder')
+            records, ignored, subjects = discover_records(root, cfg)
+            self.assertEqual(subjects, ['A', 'F'])
+            self.assertEqual(len(records), 6)
+            self.assertEqual(ignored, [])
+
     def test_unknown_name(self):
         self.assertIsNone(_identify_character('测试文件', self.chars))
         self.assertIsNone(_identify_character('一二', self.chars))
