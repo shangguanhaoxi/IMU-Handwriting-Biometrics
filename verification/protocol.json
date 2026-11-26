@@ -1,0 +1,47 @@
+{
+  "description": "Pilot unseen-writer, text-independent IMU verification. Writer groups are disjoint; dev alone selects checkpoint and threshold; test is held out.",
+  "train_subjects": [
+    "A",
+    "F",
+    "lrx",
+    "sg",
+    "yl"
+  ],
+  "dev_subjects": [
+    "ypb",
+    "zjl"
+  ],
+  "test_subjects": [
+    "zjq",
+    "zpc"
+  ],
+  "enrollment_characters": [
+    "一",
+    "人",
+    "入",
+    "口",
+    "山"
+  ],
+  "train_model_character_split": "train",
+  "query_policy": "all_characters_not_enrolled",
+  "unseen_test_characters": [
+    "十",
+    "小",
+    "日",
+    "打",
+    "安",
+    "进",
+    "品",
+    "通",
+    "维",
+    "题"
+  ],
+  "target_dev_far": 0.05,
+  "notes": [
+    "Enrolled subjects must never be used in model training.",
+    "For each dev/test writer used as owner, the other dev/test writer serves as impostor; never use training writers as test impostors.",
+    "Enrollment and query never share a character for the same owner.",
+    "Target 5% FAR is exploratory, not a production mobile unlock security requirement.",
+    "All normalization and VAT thresholds must be fit on training writers only."
+  ]
+}
