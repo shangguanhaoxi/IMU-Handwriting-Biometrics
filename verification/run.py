@@ -78,16 +78,38 @@ def make_data(rows, protocol):
     return train, stats, velocity_thresholds
 
 
+class EncoderInputDataset(torch.utils.data.Dataset):
+    """Label-free inference dataset for unseen writers.
+
+    Uses checkpoint's frozen TRAIN-writer normalization; unlike FeatureDataset
+    it does not require identity or auxiliary velocity labels.
+    """
+    def __init__(self, rows, stats):
+        self.rows, self.stats = rows, stats
+
+    def __len__(self):
+        return len(self.rows)
+
+    def __getitem__(self, index):
+        item = self.rows[index]
+        seq = (item["seq"] - self.stats["seq_mean"]) / self.stats["seq_std"]
+        glob = (item["global"] - self.stats["global_mean"]) / self.stats["global_std"]
+        return {
+            "seq": torch.as_tensor(seq, dtype=torch.float32),
+            "global": torch.as_tensor(glob, dtype=torch.float32),
+        }
+
+
 @torch.no_grad()
 def embed_rows(model, rows, stats, device, batch_size):
     if not rows:
         raise ValueError("No rows to embed")
     model.eval()
-    loader = DataLoader(FeatureDataset(rows, stats), batch_size=batch_size, shuffle=False)
+    loader = DataLoader(EncoderInputDataset(rows, stats), batch_size=batch_size, shuffle=False)
     embeddings = []
     for batch in loader:
         z, _ = model(batch["seq"].to(device), batch["global"].to(device))
-        embeddings.append(z.cpu().numpy())
+        embeddings.append(z.detach().cpu().numpy())
     return np.concatenate(embeddings, axis=0)
 
 
