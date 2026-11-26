@@ -8,7 +8,7 @@ import numpy as np
 
 from verification.protocol import (
     choose_far_threshold, create_trials, load_protocol, normalize_rows,
-    score_trials,
+    score_trials, score_enrollment,
 )
 
 
@@ -56,6 +56,60 @@ class VerificationProtocolTests(unittest.TestCase):
         )
         with self.assertRaises(ValueError):
             create_trials(rows, emb, ["B", "C"], ["一"], ["一", "十"])
+
+    def test_three_scoring_rules_with_ten_templates(self):
+        # 3 close templates and 7 orthogonal templates give different scores.
+        query = np.array([1., 0.])
+        templates = np.vstack([
+            np.tile(np.array([[1., 0.]]), (3, 1)),
+            np.tile(np.array([[0., 1.]]), (7, 1)),
+        ])
+        s_mean = score_enrollment(query, templates, "mean_prototype")
+        s_max = score_enrollment(query, templates, "max_similarity")
+        s_top3 = score_enrollment(query, templates, "topk_mean", 3)
+        self.assertAlmostEqual(s_max, 1.)
+        self.assertAlmostEqual(s_top3, 1.)
+        self.assertAlmostEqual(s_mean, 3. / np.sqrt(58.))
+        with self.assertRaises(ValueError):
+            score_enrollment(query, templates, "topk_mean", 11)
+
+    def test_k10_trial_alignment_across_methods(self):
+        chars = [f"char{i}" for i in range(10)]
+        rows = [
+            {"subject": owner, "character": char, "path": owner + "/" + char}
+            for owner in ("B", "C")
+            for char in chars + ["queryA", "queryB"]
+        ]
+        emb = np.array([
+            [1., 0.] if r["subject"] == "B" else [0., 1.]
+            for r in rows
+        ])
+        trials_by_method = {
+            method: create_trials(
+                rows, emb, ["B", "C"], chars, method=method, top_k=3
+            )
+            for method in ("mean_prototype", "max_similarity", "topk_mean")
+        }
+        for trials in trials_by_method.values():
+            self.assertEqual(len(trials), 8)
+            self.assertEqual({r["character"] for r in trials}, {"queryA", "queryB"})
+            self.assertEqual({r["enrollment_count"] for r in trials}, {10})
+        paths = [
+            {(r["owner"], r["query_subject"], r["path"]) for r in trials}
+            for trials in trials_by_method.values()
+        ]
+        self.assertEqual(paths[0], paths[1])
+        self.assertEqual(paths[1], paths[2])
+
+    def test_reject_duplicate_enrollment_trial(self):
+        rows = [
+            {"subject": subject, "character": char, "path": subject + "/" + char}
+            for subject in ("B", "C") for char in ("一", "十")
+        ]
+        rows.append({"subject": "B", "character": "一", "path": "B/一_trial2"})
+        emb = np.ones((len(rows), 2))
+        with self.assertRaisesRegex(ValueError, "exactly one record"):
+            create_trials(rows, emb, ["B", "C"], ["一"])
 
     def test_far_calibration_does_not_use_genuine_scores(self):
         dev = (
