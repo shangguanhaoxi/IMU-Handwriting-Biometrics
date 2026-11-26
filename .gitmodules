@@ -1,0 +1,3 @@
+[submodule "generation/lrf_imu"]
+	path = generation/lrf_imu
+	url = https://github.com/aminsens/LRF-IMU.git
