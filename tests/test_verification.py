@@ -57,6 +57,42 @@ class VerificationProtocolTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             create_trials(rows, emb, ["B", "C"], ["一"], ["一", "十"])
 
+    def test_unseen_writer_embed_rows_needs_no_training_labels(self):
+        import torch
+        from verification.run import embed_rows
+
+        class DummyEncoder(torch.nn.Module):
+            def forward(self, seq, global_motion):
+                z = torch.nn.functional.normalize(
+                    torch.stack((seq.mean(dim=(1, 2)), global_motion.mean(dim=1)), dim=1),
+                    dim=1,
+                )
+                return z, None
+
+        rows = [
+            {"subject": "new_1", "character": "一",
+             "seq": np.ones((4, 2), dtype=np.float32),
+             "global": np.array([2., 4.], dtype=np.float32)},
+            {"subject": "new_2", "character": "十",
+             "seq": np.full((4, 2), 3., dtype=np.float32),
+             "global": np.array([6., 8.], dtype=np.float32)},
+        ]
+        stats = {
+            "seq_mean": np.zeros((1, 2), dtype=np.float32),
+            "seq_std": np.ones((1, 2), dtype=np.float32),
+            "global_mean": np.zeros(2, dtype=np.float32),
+            "global_std": np.ones(2, dtype=np.float32),
+        }
+        embeddings = embed_rows(DummyEncoder(), rows, stats, torch.device("cpu"), 1)
+        self.assertEqual(embeddings.shape, (2, 2))
+        self.assertTrue(np.isfinite(embeddings).all())
+        np.testing.assert_allclose(
+            embeddings,
+            np.array([[1., 3.], [3., 7.]]) /
+            np.linalg.norm(np.array([[1., 3.], [3., 7.]]), axis=1, keepdims=True),
+            atol=1e-6,
+        )
+
     def test_three_scoring_rules_with_ten_templates(self):
         # 3 close templates and 7 orthogonal templates give different scores.
         query = np.array([1., 0.])
