@@ -65,7 +65,7 @@ def create_trials(rows, embeddings, owners, enrollment_characters, query_charact
                   if row["subject"] == owner and row["character"] in enrollment_characters]
         if {rows[i]["character"] for i in chosen} != enrollment_characters:
             raise ValueError(f"Owner {owner} lacks enrollment characters")
-        prototype = normalize_rows(embeddings[chosen].mean(axis=0))[0]
+        prototype = normalize_rows(embeddings[chosen].mean(axis=0))
         query_owners = set(owners)
         for i, row in enumerate(rows):
             if row["subject"] not in query_owners:
