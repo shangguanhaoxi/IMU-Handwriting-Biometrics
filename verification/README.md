@@ -86,3 +86,47 @@ python -m verification.run \
 4. 通过相似度区分身份并不等于具备防重放、模仿或对抗攻击能力。
 5. 未来应扩充真实受试者，补做交叉受试者协议、多个注册数量K以及严格FAR条件的置信度评估。
 6. 按用户分离与按字符分离是两条独立轴；同时报告跨字符、未见字符的结果是必要的。
+
+## K=10 多注册模板对照：Mean / Max / Top-3
+
+本实验**只调整注册与验证评分，不调整模型结构或训练权重**。使用已有的未知用户验证checkpoint，路径为 runs/verification_5train_2dev_2test/best.pt。
+
+禁止使用在全部9名受试者上训练的闭集分类checkpoint，因为那会引入身份泄漏。新协议为 verification/multitemplate_protocol.json，保留原来的K=5协议不变。
+
+- Train=A,F,lrx,sg,yl；Dev=ypb,zjl；Test=zjq,zpc，用户集合始终不交叉。
+- 每名Dev/Test主人用「一、人、入、口、山、之、水、心、目、本」10个不同字符注册。
+- 主人及冒充者只用剩余40字符查询；每组有80条本人试次和80条冒充试次。
+- 全未见过的测试10字符单独报告20条本人和20条冒充试次。
+- 三种方法完全共享冻结的OMC、归一化参数、注册字符和查询试次。
+
+| 方法 | 相似度定义 |
+|---|---|
+| Mean Prototype | 10个归一化模板取均值并重新归一化，与查询作余弦 |
+| Max Similarity | 查询与10模板的最大余弦相似度 |
+| Top-3 Mean | 查询与10模板最高3个余弦相似度的平均值 |
+
+每种方法分别在Dev受试者上标定自身阈值，目标经验FAR=5%。三个固定阈值随后应用于Test，不能按Test分数重新标定，也不能直接复用原K=5阈值。
+
+### AutoDL运行
+
+~~~bash
+cd /root/autodl-tmp/OMC_IMU_Research
+git pull --ff-only origin main
+python -m unittest discover -s tests -v
+
+python -m verification.compare_templates \
+  --checkpoint runs/verification_5train_2dev_2test/best.pt \
+  --protocol verification/multitemplate_protocol.json \
+  --data_path ../excel \
+  --split_config imu_split_config.json \
+  --gravity_config imu_gravity_config.json \
+  --output_dir runs/verification_multitemplate_k10
+~~~
+
+输出：
+
+- runs/verification_multitemplate_k10/metrics.json：三种方法各自的开发阈值、开发与测试指标、逐主人指标；
+- runs/verification_multitemplate_k10/comparison.csv：完整Dev和Test表，包含严格未见字符的子集；
+- runs/verification_multitemplate_k10/test_trials_by_method.csv：三个方法每条查询的分数、阈值及接受决策。
+
+**局限：** 仅2个最终测试用户，且已在先前实验中分析过，因此这是探索性方法对照。不能据此从Test挑出最佳方法、再把其表现称为全新独立测试结果。最终确认仍需新增受试者。
